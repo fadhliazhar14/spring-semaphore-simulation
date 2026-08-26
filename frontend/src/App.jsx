@@ -1,122 +1,210 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import React, { useState, useEffect, useRef } from 'react'
+import ControlPanel from './components/ControlPanel'
+import LiveMonitor from './components/LiveMonitor'
+import ResultDashboard from './components/ResultDashboard'
 
-function App() {
-  const [count, setCount] = useState(0)
+const API_BASE = 'http://localhost:8080/api'
+
+export default function App() {
+  const [config, setConfig] = useState({
+    eventName: 'Coldplay War Ticket Simulation 2026',
+    totalTickets: 100,
+    semaphorePermits: 5,
+    requestCount: 300
+  })
+
+  const [currentEventId, setCurrentEventId] = useState(null)
+  const [isInitializing, setIsInitializing] = useState(false)
+  const [isRunning, setIsRunning] = useState(false)
+  const [isConnected, setIsConnected] = useState(false)
+  const [logs, setLogs] = useState([])
+
+  const [status, setStatus] = useState({
+    availableTickets: 100,
+    totalTickets: 100,
+    activePermits: 0,
+    totalPermits: 5,
+    queueLength: 0,
+    totalRequests: 0,
+    successRequests: 0,
+    failedOutOfStock: 0,
+    failedTimeout: 0,
+    message: 'Aplikasi siap'
+  })
+
+  const eventSourceRef = useRef(null)
+
+  // Append new log item
+  const addLog = (text) => {
+    const time = new Date().toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+    setLogs((prev) => [{ time, text }, ...prev.slice(0, 49)])
+  }
+
+  // Setup Server-Sent Events (SSE)
+  useEffect(() => {
+    function connectSse() {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+      }
+
+      const sse = new EventSource(`${API_BASE}/simulation/stream`)
+      eventSourceRef.current = sse
+
+      sse.onopen = () => {
+        setIsConnected(true)
+        addLog('Terhubung ke Server-Sent Events (SSE) Stream.')
+      }
+
+      sse.addEventListener('INIT', (event) => {
+        setIsConnected(true)
+        addLog(`SSE Init: ${event.data}`)
+      })
+
+      sse.addEventListener('STATUS_UPDATE', (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          setStatus(data)
+          if (data.message) {
+            addLog(data.message)
+          }
+        } catch (e) {
+          console.error('Failed to parse SSE payload', e)
+        }
+      })
+
+      sse.onerror = () => {
+        setIsConnected(false)
+        sse.close()
+        // Coba reconnect setelah 3 detik
+        setTimeout(connectSse, 3000)
+      }
+    }
+
+    connectSse()
+
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+      }
+    }
+  }, [])
+
+  // Inisialisasi / Reset Simulasi
+  const handleInit = async () => {
+    try {
+      setIsInitializing(true)
+      const res = await fetch(`${API_BASE}/simulation/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventName: config.eventName,
+          totalTickets: config.totalTickets,
+          semaphorePermits: config.semaphorePermits
+        })
+      })
+
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`)
+      }
+
+      const data = await res.json()
+      setCurrentEventId(data.id)
+      addLog(`Event "${data.name}" berhasil dibuat (ID: ${data.id}, Stok: ${data.totalTickets}).`)
+
+      // Fetch snapshot status
+      const statusRes = await fetch(`${API_BASE}/simulation/status`)
+      if (statusRes.ok) {
+        const s = await statusRes.json()
+        setStatus(s)
+      }
+    } catch (err) {
+      addLog(`Gagal inisialisasi: ${err.message}`)
+    } finally {
+      setIsInitializing(false)
+    }
+  }
+
+  // Mulai Traffic Simulasi (Concurrent requests)
+  const handleStartTraffic = async () => {
+    if (!currentEventId) return
+
+    setIsRunning(true)
+    addLog(`Memulai simulasi ${config.requestCount} concurrent requests...`)
+
+    try {
+      // Trigger via backend batch traffic endpoint
+      const res = await fetch(`${API_BASE}/simulation/traffic?requestCount=${config.requestCount}`, {
+        method: 'POST'
+      })
+
+      if (!res.ok) {
+        throw new Error('Gagal memicu batch traffic.')
+      }
+
+      addLog(`Semua request (${config.requestCount}) telah ditembakkan ke backend!`)
+    } catch (err) {
+      addLog(`Error saat traffic: ${err.message}`)
+    } finally {
+      setTimeout(() => {
+        setIsRunning(false)
+        addLog('Batch request selesai diproses.')
+      }, 2000)
+    }
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 flex flex-col items-center">
+      {/* Container */}
+      <div className="w-full max-w-6xl space-y-6">
+        {/* Header Title */}
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-black bg-gradient-to-r from-indigo-400 via-purple-300 to-pink-400 bg-clip-text text-transparent">
+              Spring Boot Semaphore Simulation
+            </h1>
+            <p className="text-xs md:text-sm text-slate-400 mt-0.5">
+              Simulasi Concurrency "War Ticket" dengan Algoritma Semaphore & Real-Time SSE
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-slate-300">
+              Spring Boot 3.4 + React + Tailwind
+            </span>
+          </div>
+        </header>
 
-      <div className="ticks"></div>
+        {/* 1. Control Panel (Issue #12) */}
+        <ControlPanel
+          config={config}
+          setConfig={setConfig}
+          onInit={handleInit}
+          onStartTraffic={handleStartTraffic}
+          isInitializing={isInitializing}
+          isRunning={isRunning}
+          currentEventId={currentEventId}
+        />
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+        {/* 2. Live Backend Monitor (Issue #13) */}
+        <LiveMonitor
+          status={status}
+          isConnected={isConnected}
+          logs={logs}
+        />
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+        {/* 3. Result Dashboard (Issue #14) */}
+        <ResultDashboard
+          status={status}
+        />
+
+        {/* Footer */}
+        <footer className="text-center text-xs text-slate-600 pt-4">
+          Spring Boot Semaphore Concurrency Simulation &copy; 2026
+        </footer>
+      </div>
+    </div>
   )
 }
-
-export default App
