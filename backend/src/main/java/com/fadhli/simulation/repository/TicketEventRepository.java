@@ -10,7 +10,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface TicketEventRepository extends JpaRepository<TicketEvent, Long> {
 
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("UPDATE TicketEvent t SET t.availableTickets = t.availableTickets - 1, t.updatedAt = CURRENT_TIMESTAMP WHERE t.id = :eventId AND t.availableTickets > 0")
     int decrementTicketStock(@Param("eventId") Long eventId);
 }

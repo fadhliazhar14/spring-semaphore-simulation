@@ -7,6 +7,7 @@ import com.fadhli.simulation.model.TicketEvent;
 import com.fadhli.simulation.repository.TicketEventRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +23,7 @@ public class TicketService {
     private final TicketEventRepository ticketEventRepository;
     private final SemaphoreManager semaphoreManager;
     private final SseService sseService;
+    private final TicketService self;
 
     private final AtomicInteger totalRequests = new AtomicInteger(0);
     private final AtomicInteger successRequests = new AtomicInteger(0);
@@ -33,10 +35,12 @@ public class TicketService {
 
     public TicketService(TicketEventRepository ticketEventRepository,
                          SemaphoreManager semaphoreManager,
-                         SseService sseService) {
+                         SseService sseService,
+                         @Lazy TicketService self) {
         this.ticketEventRepository = ticketEventRepository;
         this.semaphoreManager = semaphoreManager;
         this.sseService = sseService;
+        this.self = (self != null) ? self : this;
     }
 
     @Transactional
@@ -57,7 +61,6 @@ public class TicketService {
         return savedEvent;
     }
 
-    @Transactional
     public TicketPurchaseResultDto purchaseTicket(Long eventId, String userId) {
         long startTime = System.currentTimeMillis();
         totalRequests.incrementAndGet();
@@ -83,11 +86,11 @@ public class TicketService {
                 Thread.currentThread().interrupt();
             }
 
-            // 3. Kurangi stok tiket secara atomik di database
-            int updatedRows = ticketEventRepository.decrementTicketStock(eventId);
+            // 3. Kurangi stok tiket secara atomik di database via transactional proxy method
+            boolean success = self.processDatabaseTransaction(eventId);
             long duration = System.currentTimeMillis() - startTime;
 
-            if (updatedRows > 0) {
+            if (success) {
                 successRequests.incrementAndGet();
                 TicketEvent event = ticketEventRepository.findById(eventId).orElse(null);
                 int remaining = event != null ? event.getAvailableTickets() : 0;
@@ -112,6 +115,11 @@ public class TicketService {
                 broadcastCurrentStatus("Permit dilepaskan setelah melayani " + userId);
             }
         }
+    }
+
+    @Transactional
+    public boolean processDatabaseTransaction(Long eventId) {
+        return ticketEventRepository.decrementTicketStock(eventId) > 0;
     }
 
     public SimulationStatusDto getCurrentStatus() {
