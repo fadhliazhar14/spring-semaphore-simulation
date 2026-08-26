@@ -12,10 +12,15 @@ import {
 // Tooltip kustom untuk grafik memori
 function CustomTooltip({ active, payload, label }) {
   if (active && payload && payload.length) {
+    const dataPoint = payload[0].payload || {}
+    const timeDisplay = dataPoint.fullTime || dataPoint.time || label
+    const memory = typeof dataPoint.memoryUsage === 'number'
+      ? dataPoint.memoryUsage.toFixed(2)
+      : (typeof payload[0].value === 'number' ? payload[0].value.toFixed(2) : payload[0].value)
     return (
-      <div className="bg-slate-950 border border-slate-700 p-2 rounded-lg shadow-xl text-xs font-mono">
-        <p className="text-slate-400">{`Waktu: ${label}`}</p>
-        <p className="text-cyan-400 font-bold">{`Memory: ${payload[0].value} MB`}</p>
+      <div className="bg-slate-950 border border-slate-700 p-2.5 rounded-lg shadow-xl text-xs font-mono">
+        <p className="text-slate-400">{`Waktu: ${timeDisplay}`}</p>
+        <p className="text-cyan-400 font-bold">{`Memory: ${memory} MB`}</p>
       </div>
     )
   }
@@ -188,7 +193,11 @@ export default function LiveMonitor({ status, isConnected, logs, memoryHistory =
               <LineChart data={memoryHistory} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
                 <XAxis
-                  dataKey="time"
+                  dataKey="id"
+                  tickFormatter={(id) => {
+                    const item = memoryHistory.find((d) => d.id === id)
+                    return item ? item.time : id
+                  }}
                   stroke="#64748b"
                   fontSize={10}
                   tickLine={false}
@@ -201,7 +210,7 @@ export default function LiveMonitor({ status, isConnected, logs, memoryHistory =
                   domain={['auto', 'auto']}
                   unit=" MB"
                 />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<CustomTooltip />} isAnimationActive={false} />
                 <Line
                   type="monotone"
                   dataKey="memoryUsage"

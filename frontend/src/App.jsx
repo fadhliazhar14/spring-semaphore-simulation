@@ -72,15 +72,25 @@ export default function App() {
           const data = JSON.parse(event.data)
           setStatus(data)
           if (data.memoryUsage !== undefined) {
-            const time = new Date().toLocaleTimeString('id-ID', {
+            const now = new Date(data.timestamp || Date.now())
+            const time = now.toLocaleTimeString('id-ID', {
               hour: '2-digit',
               minute: '2-digit',
               second: '2-digit'
             })
-            setMemoryHistory((prev) => [
-              ...prev.slice(-29),
-              { time, memoryUsage: data.memoryUsage }
-            ])
+            const fullTime = now.toLocaleTimeString('id-ID', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              fractionalSecondDigits: 3
+            })
+            setMemoryHistory((prev) => {
+              const nextId = prev.length > 0 ? (prev[prev.length - 1].id || 0) + 1 : 1
+              return [
+                ...prev.slice(-29),
+                { id: nextId, time, fullTime, memoryUsage: data.memoryUsage }
+              ]
+            })
           }
           if (data.message) {
             addLog(data.message)
@@ -136,12 +146,19 @@ export default function App() {
         const s = await statusRes.json()
         setStatus(s)
         if (s.memoryUsage !== undefined) {
-          const time = new Date().toLocaleTimeString('id-ID', {
+          const now = new Date(s.timestamp || Date.now())
+          const time = now.toLocaleTimeString('id-ID', {
             hour: '2-digit',
             minute: '2-digit',
             second: '2-digit'
           })
-          setMemoryHistory([{ time, memoryUsage: s.memoryUsage }])
+          const fullTime = now.toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            fractionalSecondDigits: 3
+          })
+          setMemoryHistory([{ id: 1, time, fullTime, memoryUsage: s.memoryUsage }])
         }
       }
     } catch (err) {
