@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import {
   ResponsiveContainer,
   LineChart,
@@ -28,11 +28,14 @@ export default function LiveMonitor({ status, isConnected, logs, memoryHistory =
   const queueLength = status.queueLength || 0
   const memoryUsage = typeof status.memoryUsage === 'number' ? status.memoryUsage : 0
 
-  const logsEndRef = useRef(null)
+  const logContainerRef = useRef(null)
+  const [autoScroll, setAutoScroll] = useState(false)
 
   useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs])
+    if (autoScroll && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+    }
+  }, [logs, autoScroll])
 
   // Buat array representasi slot Semaphore
   const permitSlots = Array.from({ length: totalPermits }, (_, idx) => {
@@ -220,16 +223,33 @@ export default function LiveMonitor({ status, isConnected, logs, memoryHistory =
 
       {/* Live Event Stream / Log Terminal */}
       <div className="bg-slate-950/90 border border-slate-800/80 rounded-xl p-4">
-        <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-800/60">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/60">
           <span className="text-xs font-mono font-bold text-slate-400 flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-indigo-500"></span>
             LIVE ACTIVITY LOG
           </span>
-          <span className="text-[11px] font-mono text-slate-500">
-            Pesan Terakhir: {status.message || 'Standby'}
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setAutoScroll((prev) => !prev)}
+              className={`px-2 py-0.5 rounded text-[11px] font-mono border transition-colors ${
+                autoScroll
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 font-semibold'
+                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+              }`}
+              title="Klik untuk mengaktifkan/menonaktifkan auto-scroll di dalam kotak log"
+            >
+              Auto-scroll: {autoScroll ? 'ON' : 'OFF'}
+            </button>
+            <span className="text-[11px] font-mono text-slate-500 hidden sm:inline">
+              Pesan Terakhir: {status.message || 'Standby'}
+            </span>
+          </div>
         </div>
-        <div className="h-32 overflow-y-auto space-y-1 font-mono text-xs text-slate-300 scrollbar-thin scrollbar-thumb-slate-800">
+        <div
+          ref={logContainerRef}
+          className="h-32 overflow-y-auto space-y-1 font-mono text-xs text-slate-300 scrollbar-thin scrollbar-thumb-slate-800"
+        >
           {logs && logs.length > 0 ? (
             logs.map((logItem, index) => (
               <div key={index} className="flex items-start gap-2 py-0.5">
@@ -252,7 +272,6 @@ export default function LiveMonitor({ status, isConnected, logs, memoryHistory =
               Menunggu aktivitas simulasi...
             </div>
           )}
-          <div ref={logsEndRef} />
         </div>
       </div>
     </div>

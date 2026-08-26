@@ -10,7 +10,8 @@ export default function App() {
     eventName: 'Coldplay War Ticket Simulation 2026',
     totalTickets: 100,
     semaphorePermits: 5,
-    requestCount: 300
+    requestCount: 300,
+    useDelay: true
   })
 
   const [currentEventId, setCurrentEventId] = useState(null)
@@ -116,7 +117,8 @@ export default function App() {
         body: JSON.stringify({
           eventName: config.eventName,
           totalTickets: config.totalTickets,
-          semaphorePermits: config.semaphorePermits
+          semaphorePermits: config.semaphorePermits,
+          useDelay: config.useDelay
         })
       })
 
@@ -154,11 +156,11 @@ export default function App() {
     if (!currentEventId) return
 
     setIsRunning(true)
-    addLog(`Memulai simulasi ${config.requestCount} concurrent requests...`)
+    addLog(`Memulai simulasi ${config.requestCount} concurrent requests (Delay: ${config.useDelay ? '1s' : '0s'})...`)
 
     try {
       // Trigger via backend batch traffic endpoint
-      const res = await fetch(`${API_BASE}/simulation/traffic?requestCount=${config.requestCount}`, {
+      const res = await fetch(`${API_BASE}/simulation/traffic?requestCount=${config.requestCount}&useDelay=${config.useDelay ?? true}`, {
         method: 'POST'
       })
 
