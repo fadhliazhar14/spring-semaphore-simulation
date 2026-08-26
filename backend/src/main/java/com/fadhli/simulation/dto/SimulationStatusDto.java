@@ -11,6 +11,7 @@ public class SimulationStatusDto {
     private int failedOutOfStock;
     private int failedTimeout;
     private String message;
+    private double memoryUsage;
     private long timestamp;
 
     public SimulationStatusDto() {
@@ -19,6 +20,13 @@ public class SimulationStatusDto {
     public SimulationStatusDto(int availableTickets, int totalTickets, int activePermits, int totalPermits,
                                int queueLength, int totalRequests, int successRequests,
                                int failedOutOfStock, int failedTimeout, String message) {
+        this(availableTickets, totalTickets, activePermits, totalPermits, queueLength, totalRequests,
+                successRequests, failedOutOfStock, failedTimeout, message, 0.0);
+    }
+
+    public SimulationStatusDto(int availableTickets, int totalTickets, int activePermits, int totalPermits,
+                               int queueLength, int totalRequests, int successRequests,
+                               int failedOutOfStock, int failedTimeout, String message, double memoryUsage) {
         this.availableTickets = availableTickets;
         this.totalTickets = totalTickets;
         this.activePermits = activePermits;
@@ -29,6 +37,7 @@ public class SimulationStatusDto {
         this.failedOutOfStock = failedOutOfStock;
         this.failedTimeout = failedTimeout;
         this.message = message;
+        this.memoryUsage = memoryUsage;
         this.timestamp = System.currentTimeMillis();
     }
 
@@ -110,6 +119,14 @@ public class SimulationStatusDto {
 
     public void setMessage(String message) {
         this.message = message;
+    }
+
+    public double getMemoryUsage() {
+        return memoryUsage;
+    }
+
+    public void setMemoryUsage(double memoryUsage) {
+        this.memoryUsage = memoryUsage;
     }
 
     public long getTimestamp() {

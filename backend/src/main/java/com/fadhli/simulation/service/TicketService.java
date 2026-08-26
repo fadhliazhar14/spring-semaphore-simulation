@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class TicketService {
 
     private static final Logger log = LoggerFactory.getLogger(TicketService.class);
-    private static final long DEFAULT_TIMEOUT_MS = 2000;
+    private static final long DEFAULT_TIMEOUT_MS = 20000;
 
     private final TicketEventRepository ticketEventRepository;
     private final SemaphoreManager semaphoreManager;
@@ -81,7 +81,7 @@ public class TicketService {
 
             // Simulasi proses bisnis (misal pemrosesan pembayaran/alokasi)
             try {
-                Thread.sleep(30);
+                Thread.sleep(1000);
             } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
@@ -130,6 +130,10 @@ public class TicketService {
                     .orElse(0);
         }
 
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemoryBytes = runtime.totalMemory() - runtime.freeMemory();
+        double memoryUsageMb = Math.round(((double) usedMemoryBytes / (1024.0 * 1024.0)) * 100.0) / 100.0;
+
         return new SimulationStatusDto(
                 availableTickets,
                 currentTotalTickets,
@@ -140,7 +144,8 @@ public class TicketService {
                 successRequests.get(),
                 failedOutOfStock.get(),
                 failedTimeout.get(),
-                "Status update"
+                "Status update",
+                memoryUsageMb
         );
     }
 
