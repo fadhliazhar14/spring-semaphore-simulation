@@ -4,6 +4,15 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+# Environment variable files and secrets
+env-setup.txt
+*.env
+*.env.*
+*env*.txt
+*env*.ps1
+*env*.sh
+
+
 ### STS ###
 .apt_generated
 .classpath

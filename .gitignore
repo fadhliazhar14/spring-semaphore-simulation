@@ -1,0 +1,14 @@
+# Environment variable files and secrets
+env-setup.txt
+*.env
+*.env.*
+*env*.txt
+*env*.ps1
+*env*.sh
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
