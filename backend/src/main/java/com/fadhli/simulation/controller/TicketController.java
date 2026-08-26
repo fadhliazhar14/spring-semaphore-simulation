@@ -40,6 +40,9 @@ public class TicketController {
         int permits = request.getSemaphorePermits() > 0 ? request.getSemaphorePermits() : 5;
 
         TicketEvent event = ticketService.initSimulation(name, stock, permits);
+        if (request.getUseDelay() != null) {
+            ticketService.setDelayEnabled(request.getUseDelay());
+        }
         return ResponseEntity.ok(event);
     }
 
@@ -69,11 +72,15 @@ public class TicketController {
     }
 
     @PostMapping("/simulation/traffic")
-    public ResponseEntity<String> triggerTraffic(@RequestParam(defaultValue = "100") int requestCount) {
+    public ResponseEntity<String> triggerTraffic(
+            @RequestParam(defaultValue = "100") int requestCount,
+            @RequestParam(defaultValue = "true") boolean useDelay) {
         Long eventId = ticketService.getCurrentEventId();
         if (eventId == null) {
             return ResponseEntity.badRequest().body("Inisialisasi simulasi terlebih dahulu.");
         }
+
+        ticketService.setDelayEnabled(useDelay);
 
         CompletableFuture.runAsync(() -> {
             for (int i = 1; i <= requestCount; i++) {

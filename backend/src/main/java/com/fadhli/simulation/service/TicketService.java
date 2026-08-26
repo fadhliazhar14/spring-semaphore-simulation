@@ -32,6 +32,7 @@ public class TicketService {
 
     private volatile Long currentEventId;
     private volatile int currentTotalTickets = 0;
+    private volatile boolean delayEnabled = true;
 
     public TicketService(TicketEventRepository ticketEventRepository,
                          SemaphoreManager semaphoreManager,
@@ -79,11 +80,13 @@ public class TicketService {
                 return TicketPurchaseResultDto.timeout(userId, eventId, duration);
             }
 
-            // Simulasi proses bisnis (misal pemrosesan pembayaran/alokasi)
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
+            // Simulasi proses bisnis (misal pemrosesan pembayaran/alokasi) jika delay diaktifkan
+            if (delayEnabled) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
             }
 
             // 3. Kurangi stok tiket secara atomik di database via transactional proxy method
@@ -161,5 +164,13 @@ public class TicketService {
 
     public int getCurrentTotalTickets() {
         return currentTotalTickets;
+    }
+
+    public boolean isDelayEnabled() {
+        return delayEnabled;
+    }
+
+    public void setDelayEnabled(boolean delayEnabled) {
+        this.delayEnabled = delayEnabled;
     }
 }
