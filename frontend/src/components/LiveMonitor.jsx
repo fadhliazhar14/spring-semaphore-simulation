@@ -1,9 +1,38 @@
-import React from 'react'
+import React, { useRef, useEffect } from 'react'
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid
+} from 'recharts'
 
-export default function LiveMonitor({ status, isConnected, logs }) {
+// Tooltip kustom untuk grafik memori
+function CustomTooltip({ active, payload, label }) {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-slate-950 border border-slate-700 p-2 rounded-lg shadow-xl text-xs font-mono">
+        <p className="text-slate-400">{`Waktu: ${label}`}</p>
+        <p className="text-cyan-400 font-bold">{`Memory: ${payload[0].value} MB`}</p>
+      </div>
+    )
+  }
+  return null
+}
+
+export default function LiveMonitor({ status, isConnected, logs, memoryHistory = [] }) {
   const totalPermits = status.totalPermits || 5
   const activePermits = status.activePermits || 0
   const queueLength = status.queueLength || 0
+  const memoryUsage = typeof status.memoryUsage === 'number' ? status.memoryUsage : 0
+
+  const logsEndRef = useRef(null)
+
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [logs])
 
   // Buat array representasi slot Semaphore
   const permitSlots = Array.from({ length: totalPermits }, (_, idx) => {
@@ -23,7 +52,7 @@ export default function LiveMonitor({ status, isConnected, logs }) {
             Live Backend Monitor (SSE)
           </h2>
           <p className="text-sm text-slate-400 mt-1">
-            Visualisasi state slot Semaphore dan antrean thread secara real-time.
+            Visualisasi state slot Semaphore, metrik resource JVM, dan antrean thread secara real-time.
           </p>
         </div>
 
@@ -130,6 +159,65 @@ export default function LiveMonitor({ status, isConnected, logs }) {
         </div>
       </div>
 
+      {/* Real-time Resource (Memory Usage) Chart */}
+      <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-5 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <span>📈</span>
+              Live Memory Usage (JVM)
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Tren pemakaian memori backend secara real-time saat simulasi berlangsung.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400">Current:</span>
+            <span className="text-xs font-mono text-cyan-400 font-bold bg-cyan-500/10 px-2.5 py-1 rounded-md border border-cyan-500/20">
+              {memoryUsage.toFixed(2)} MB
+            </span>
+          </div>
+        </div>
+
+        <div className="h-44 w-full">
+          {memoryHistory && memoryHistory.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={memoryHistory} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+                <XAxis
+                  dataKey="time"
+                  stroke="#64748b"
+                  fontSize={10}
+                  tickLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  stroke="#64748b"
+                  fontSize={10}
+                  tickLine={false}
+                  domain={['auto', 'auto']}
+                  unit=" MB"
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Line
+                  type="monotone"
+                  dataKey="memoryUsage"
+                  stroke="#06b6d4"
+                  strokeWidth={2}
+                  dot={{ r: 2, fill: '#06b6d4' }}
+                  activeDot={{ r: 5, stroke: '#38bdf8', strokeWidth: 2, fill: '#0284c7' }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center text-slate-600 text-xs italic">
+              Menunggu data metrik memori...
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Live Event Stream / Log Terminal */}
       <div className="bg-slate-950/90 border border-slate-800/80 rounded-xl p-4">
         <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-800/60">
@@ -164,6 +252,7 @@ export default function LiveMonitor({ status, isConnected, logs }) {
               Menunggu aktivitas simulasi...
             </div>
           )}
+          <div ref={logsEndRef} />
         </div>
       </div>
     </div>

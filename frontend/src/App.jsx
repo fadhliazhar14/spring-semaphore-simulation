@@ -18,6 +18,7 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [logs, setLogs] = useState([])
+  const [memoryHistory, setMemoryHistory] = useState([])
 
   const [status, setStatus] = useState({
     availableTickets: 100,
@@ -29,19 +30,20 @@ export default function App() {
     successRequests: 0,
     failedOutOfStock: 0,
     failedTimeout: 0,
+    memoryUsage: 0,
     message: 'Aplikasi siap'
   })
 
   const eventSourceRef = useRef(null)
 
-  // Append new log item
+  // Append new log item (terbaru di bawah, max 50 items)
   const addLog = (text) => {
     const time = new Date().toLocaleTimeString('id-ID', {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit'
     })
-    setLogs((prev) => [{ time, text }, ...prev.slice(0, 49)])
+    setLogs((prev) => [...prev.slice(-49), { time, text }])
   }
 
   // Setup Server-Sent Events (SSE)
@@ -68,6 +70,17 @@ export default function App() {
         try {
           const data = JSON.parse(event.data)
           setStatus(data)
+          if (data.memoryUsage !== undefined) {
+            const time = new Date().toLocaleTimeString('id-ID', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit'
+            })
+            setMemoryHistory((prev) => [
+              ...prev.slice(-29),
+              { time, memoryUsage: data.memoryUsage }
+            ])
+          }
           if (data.message) {
             addLog(data.message)
           }
@@ -120,6 +133,14 @@ export default function App() {
       if (statusRes.ok) {
         const s = await statusRes.json()
         setStatus(s)
+        if (s.memoryUsage !== undefined) {
+          const time = new Date().toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          })
+          setMemoryHistory([{ time, memoryUsage: s.memoryUsage }])
+        }
       }
     } catch (err) {
       addLog(`Gagal inisialisasi: ${err.message}`)
@@ -188,11 +209,12 @@ export default function App() {
           currentEventId={currentEventId}
         />
 
-        {/* 2. Live Backend Monitor (Issue #13) */}
+        {/* 2. Live Backend Monitor (Issue #13 & #19) */}
         <LiveMonitor
           status={status}
           isConnected={isConnected}
           logs={logs}
+          memoryHistory={memoryHistory}
         />
 
         {/* 3. Result Dashboard (Issue #14) */}
