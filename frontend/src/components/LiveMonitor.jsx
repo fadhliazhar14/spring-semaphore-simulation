@@ -1,9 +1,46 @@
-import React from 'react'
+import React, { useRef, useEffect, useState } from 'react'
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid
+} from 'recharts'
 
-export default function LiveMonitor({ status, isConnected, logs }) {
+// Tooltip kustom untuk grafik memori
+function CustomTooltip({ active, payload, label }) {
+  if (active && payload && payload.length) {
+    const dataPoint = payload[0].payload || {}
+    const timeDisplay = dataPoint.fullTime || dataPoint.time || label
+    const memory = typeof dataPoint.memoryUsage === 'number'
+      ? dataPoint.memoryUsage.toFixed(2)
+      : (typeof payload[0].value === 'number' ? payload[0].value.toFixed(2) : payload[0].value)
+    return (
+      <div className="bg-slate-950 border border-slate-700 p-2.5 rounded-lg shadow-xl text-xs font-mono">
+        <p className="text-slate-400">{`Waktu: ${timeDisplay}`}</p>
+        <p className="text-cyan-400 font-bold">{`Memory: ${memory} MB`}</p>
+      </div>
+    )
+  }
+  return null
+}
+
+export default function LiveMonitor({ status, isConnected, logs, memoryHistory = [] }) {
   const totalPermits = status.totalPermits || 5
   const activePermits = status.activePermits || 0
   const queueLength = status.queueLength || 0
+  const memoryUsage = typeof status.memoryUsage === 'number' ? status.memoryUsage : 0
+
+  const logContainerRef = useRef(null)
+  const [autoScroll, setAutoScroll] = useState(false)
+
+  useEffect(() => {
+    if (autoScroll && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+    }
+  }, [logs, autoScroll])
 
   // Buat array representasi slot Semaphore
   const permitSlots = Array.from({ length: totalPermits }, (_, idx) => {
@@ -23,7 +60,7 @@ export default function LiveMonitor({ status, isConnected, logs }) {
             Live Backend Monitor (SSE)
           </h2>
           <p className="text-sm text-slate-400 mt-1">
-            Visualisasi state slot Semaphore dan antrean thread secara real-time.
+            Visualisasi state slot Semaphore, metrik resource JVM, dan antrean thread secara real-time.
           </p>
         </div>
 
@@ -130,18 +167,98 @@ export default function LiveMonitor({ status, isConnected, logs }) {
         </div>
       </div>
 
+      {/* Real-time Resource (Memory Usage) Chart */}
+      <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-5 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <span>📈</span>
+              Live Memory Usage (JVM)
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Tren pemakaian memori backend secara real-time saat simulasi berlangsung.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400">Current:</span>
+            <span className="text-xs font-mono text-cyan-400 font-bold bg-cyan-500/10 px-2.5 py-1 rounded-md border border-cyan-500/20">
+              {memoryUsage.toFixed(2)} MB
+            </span>
+          </div>
+        </div>
+
+        <div className="h-44 w-full">
+          {memoryHistory && memoryHistory.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={memoryHistory} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+                <XAxis
+                  dataKey="id"
+                  tickFormatter={(id) => {
+                    const item = memoryHistory.find((d) => d.id === id)
+                    return item ? item.time : id
+                  }}
+                  stroke="#64748b"
+                  fontSize={10}
+                  tickLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  stroke="#64748b"
+                  fontSize={10}
+                  tickLine={false}
+                  domain={['auto', 'auto']}
+                  unit=" MB"
+                />
+                <Tooltip content={<CustomTooltip />} isAnimationActive={false} />
+                <Line
+                  type="monotone"
+                  dataKey="memoryUsage"
+                  stroke="#06b6d4"
+                  strokeWidth={2}
+                  dot={{ r: 2, fill: '#06b6d4' }}
+                  activeDot={{ r: 5, stroke: '#38bdf8', strokeWidth: 2, fill: '#0284c7' }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center text-slate-600 text-xs italic">
+              Menunggu data metrik memori...
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Live Event Stream / Log Terminal */}
       <div className="bg-slate-950/90 border border-slate-800/80 rounded-xl p-4">
-        <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-800/60">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/60">
           <span className="text-xs font-mono font-bold text-slate-400 flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-indigo-500"></span>
             LIVE ACTIVITY LOG
           </span>
-          <span className="text-[11px] font-mono text-slate-500">
-            Pesan Terakhir: {status.message || 'Standby'}
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setAutoScroll((prev) => !prev)}
+              className={`px-2 py-0.5 rounded text-[11px] font-mono border transition-colors ${
+                autoScroll
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 font-semibold'
+                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+              }`}
+              title="Klik untuk mengaktifkan/menonaktifkan auto-scroll di dalam kotak log"
+            >
+              Auto-scroll: {autoScroll ? 'ON' : 'OFF'}
+            </button>
+            <span className="text-[11px] font-mono text-slate-500 hidden sm:inline">
+              Pesan Terakhir: {status.message || 'Standby'}
+            </span>
+          </div>
         </div>
-        <div className="h-32 overflow-y-auto space-y-1 font-mono text-xs text-slate-300 scrollbar-thin scrollbar-thumb-slate-800">
+        <div
+          ref={logContainerRef}
+          className="h-32 overflow-y-auto space-y-1 font-mono text-xs text-slate-300 scrollbar-thin scrollbar-thumb-slate-800"
+        >
           {logs && logs.length > 0 ? (
             logs.map((logItem, index) => (
               <div key={index} className="flex items-start gap-2 py-0.5">

@@ -110,60 +110,30 @@ export default function ControlPanel({
         </div>
       </div>
 
-      {/* Toggle & Slider Delay Pemrosesan */}
-      <div className="mb-6 p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Simulation Options: Delay Toggle */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 mb-6 bg-slate-950/60 border border-slate-800/80 rounded-xl">
         <div className="flex items-center gap-3">
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              name="enableDelay"
-              checked={config.enableDelay}
-              onChange={(e) =>
-                setConfig((prev) => ({ ...prev, enableDelay: e.target.checked }))
-              }
-              disabled={isRunning}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-          </label>
+          <span className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg text-sm">⏱️</span>
           <div>
-            <span className="text-sm font-semibold text-white">Simulasi Delay Pemrosesan</span>
-            <p className="text-xs text-slate-400">
-              {config.enableDelay
-                ? 'Menyimulasikan jeda transaksi (misal: validasi payment)'
-                : 'Tanpa delay tambahan (eksekusi instan)'}
-            </p>
-          </div>
-        </div>
-
-        {config.enableDelay && (
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <input
-              type="range"
-              name="processingDelayMs"
-              min="0"
-              max="500"
-              step="10"
-              value={config.processingDelayMs}
-              onChange={handleChange}
-              disabled={isRunning}
-              className="w-32 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-            />
-            <div className="flex items-center gap-1.5">
-              <input
-                type="number"
-                name="processingDelayMs"
-                value={config.processingDelayMs}
-                onChange={handleChange}
-                disabled={isRunning}
-                min="0"
-                max="5000"
-                className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-white text-sm text-right font-mono focus:outline-none focus:border-indigo-500"
-              />
-              <span className="text-xs font-mono text-slate-400">ms</span>
+            <div className="text-xs font-semibold text-slate-200">Gunakan Delay Simulasi (1 Detik)</div>
+            <div className="text-[11px] text-slate-400">
+              {config.useDelay
+                ? 'Aktif — Setiap transaksi menahan slot permit selama 1 detik agar pergerakan slot Semaphore mudah diamati.'
+                : 'Nonaktif — Simulasi berjalan instan dengan throughput tinggi tanpa jeda buatan.'}
             </div>
           </div>
-        )}
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+          <input
+            type="checkbox"
+            name="useDelay"
+            checked={config.useDelay ?? true}
+            onChange={(e) => setConfig((prev) => ({ ...prev, useDelay: e.target.checked }))}
+            disabled={isRunning}
+            className="sr-only peer"
+          />
+          <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+        </label>
       </div>
 
       <div className="flex flex-wrap gap-4 pt-2 border-t border-slate-800/80">

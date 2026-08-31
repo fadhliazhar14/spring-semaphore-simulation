@@ -4,23 +4,20 @@ public class InitSimulationRequest {
     private String eventName;
     private int totalTickets;
     private int semaphorePermits;
-    private int processingDelayMs = 30;
+    private Boolean useDelay = true;
 
     public InitSimulationRequest() {
     }
 
     public InitSimulationRequest(String eventName, int totalTickets, int semaphorePermits) {
-        this.eventName = eventName;
-        this.totalTickets = totalTickets;
-        this.semaphorePermits = semaphorePermits;
-        this.processingDelayMs = 30;
+        this(eventName, totalTickets, semaphorePermits, true);
     }
 
-    public InitSimulationRequest(String eventName, int totalTickets, int semaphorePermits, int processingDelayMs) {
+    public InitSimulationRequest(String eventName, int totalTickets, int semaphorePermits, Boolean useDelay) {
         this.eventName = eventName;
         this.totalTickets = totalTickets;
         this.semaphorePermits = semaphorePermits;
-        this.processingDelayMs = processingDelayMs;
+        this.useDelay = useDelay != null ? useDelay : true;
     }
 
     public String getEventName() {
@@ -47,11 +44,11 @@ public class InitSimulationRequest {
         this.semaphorePermits = semaphorePermits;
     }
 
-    public int getProcessingDelayMs() {
-        return processingDelayMs;
+    public Boolean getUseDelay() {
+        return useDelay;
     }
 
-    public void setProcessingDelayMs(int processingDelayMs) {
-        this.processingDelayMs = processingDelayMs;
+    public void setUseDelay(Boolean useDelay) {
+        this.useDelay = useDelay;
     }
 }

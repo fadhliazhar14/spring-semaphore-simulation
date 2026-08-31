@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class TicketService {
 
     private static final Logger log = LoggerFactory.getLogger(TicketService.class);
-    private static final long DEFAULT_TIMEOUT_MS = 2000;
+    private static final long DEFAULT_TIMEOUT_MS = 20000;
 
     private final TicketEventRepository ticketEventRepository;
     private final SemaphoreManager semaphoreManager;
@@ -33,7 +33,7 @@ public class TicketService {
 
     private volatile Long currentEventId;
     private volatile int currentTotalTickets = 0;
-    private volatile int processingDelayMs = 30;
+    private volatile boolean delayEnabled = true;
 
     public TicketService(TicketEventRepository ticketEventRepository,
                          SemaphoreManager semaphoreManager,
@@ -90,26 +90,13 @@ public class TicketService {
                 return TicketPurchaseResultDto.timeout(userId, eventId, duration);
             }
 
-            // 3. Catat sesi aktif user di Redis (TTL 5 menit)
-            semaphoreManager.recordSession(eventId, userId, "PROCESSING", Duration.ofMinutes(5));
-
-            // Simulasi waktu proses bisnis (misal validasi pembayaran / antrean tiket)
-            if (this.processingDelayMs > 0) {
+            // Simulasi proses bisnis (misal pemrosesan pembayaran/alokasi) jika delay diaktifkan
+            if (delayEnabled) {
                 try {
-                    Thread.sleep(this.processingDelayMs);
+                    Thread.sleep(1000);
                 } catch (InterruptedException ignored) {
                     Thread.currentThread().interrupt();
                 }
-            }
-
-            // 4. Fast-check & decrement stok tiket di Redis secara atomik
-            boolean stockReservedInRedis = semaphoreManager.tryReserveStock(eventId);
-            if (!stockReservedInRedis) {
-                failedOutOfStock.incrementAndGet();
-                semaphoreManager.recordSession(eventId, userId, "FAILED_OUT_OF_STOCK", Duration.ofMinutes(5));
-                long duration = System.currentTimeMillis() - startTime;
-                broadcastCurrentStatus("User " + userId + " gagal, stok tiket habis (Redis fast-check)");
-                return TicketPurchaseResultDto.outOfStock(userId, eventId, duration);
             }
 
             // 5. Kurangi stok tiket secara atomik di database (PostgreSQL source of truth)
@@ -158,6 +145,10 @@ public class TicketService {
                     .orElse(0);
         }
 
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemoryBytes = runtime.totalMemory() - runtime.freeMemory();
+        double memoryUsageMb = Math.round(((double) usedMemoryBytes / (1024.0 * 1024.0)) * 100.0) / 100.0;
+
         return new SimulationStatusDto(
                 availableTickets,
                 currentTotalTickets,
@@ -168,7 +159,8 @@ public class TicketService {
                 successRequests.get(),
                 failedOutOfStock.get(),
                 failedTimeout.get(),
-                "Status update"
+                "Status update",
+                memoryUsageMb
         );
     }
 
@@ -184,5 +176,13 @@ public class TicketService {
 
     public int getCurrentTotalTickets() {
         return currentTotalTickets;
+    }
+
+    public boolean isDelayEnabled() {
+        return delayEnabled;
+    }
+
+    public void setDelayEnabled(boolean delayEnabled) {
+        this.delayEnabled = delayEnabled;
     }
 }

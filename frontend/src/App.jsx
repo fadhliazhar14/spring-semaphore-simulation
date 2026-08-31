@@ -11,8 +11,7 @@ export default function App() {
     totalTickets: 100,
     semaphorePermits: 5,
     requestCount: 300,
-    enableDelay: true,
-    processingDelayMs: 30
+    useDelay: true
   })
 
   const [currentEventId, setCurrentEventId] = useState(null)
@@ -20,6 +19,7 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [logs, setLogs] = useState([])
+  const [memoryHistory, setMemoryHistory] = useState([])
 
   const [status, setStatus] = useState({
     availableTickets: 100,
@@ -31,19 +31,20 @@ export default function App() {
     successRequests: 0,
     failedOutOfStock: 0,
     failedTimeout: 0,
+    memoryUsage: 0,
     message: 'Aplikasi siap'
   })
 
   const eventSourceRef = useRef(null)
 
-  // Append new log item
+  // Append new log item (terbaru di bawah, max 50 items)
   const addLog = (text) => {
     const time = new Date().toLocaleTimeString('id-ID', {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit'
     })
-    setLogs((prev) => [{ time, text }, ...prev.slice(0, 49)])
+    setLogs((prev) => [...prev.slice(-49), { time, text }])
   }
 
   // Setup Server-Sent Events (SSE)
@@ -70,6 +71,27 @@ export default function App() {
         try {
           const data = JSON.parse(event.data)
           setStatus(data)
+          if (data.memoryUsage !== undefined) {
+            const now = new Date(data.timestamp || Date.now())
+            const time = now.toLocaleTimeString('id-ID', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit'
+            })
+            const fullTime = now.toLocaleTimeString('id-ID', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              fractionalSecondDigits: 3
+            })
+            setMemoryHistory((prev) => {
+              const nextId = prev.length > 0 ? (prev[prev.length - 1].id || 0) + 1 : 1
+              return [
+                ...prev.slice(-29),
+                { id: nextId, time, fullTime, memoryUsage: data.memoryUsage }
+              ]
+            })
+          }
           if (data.message) {
             addLog(data.message)
           }
@@ -106,7 +128,7 @@ export default function App() {
           eventName: config.eventName,
           totalTickets: config.totalTickets,
           semaphorePermits: config.semaphorePermits,
-          processingDelayMs: config.enableDelay ? config.processingDelayMs : 0
+          useDelay: config.useDelay
         })
       })
 
@@ -123,6 +145,21 @@ export default function App() {
       if (statusRes.ok) {
         const s = await statusRes.json()
         setStatus(s)
+        if (s.memoryUsage !== undefined) {
+          const now = new Date(s.timestamp || Date.now())
+          const time = now.toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          })
+          const fullTime = now.toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            fractionalSecondDigits: 3
+          })
+          setMemoryHistory([{ id: 1, time, fullTime, memoryUsage: s.memoryUsage }])
+        }
       }
     } catch (err) {
       addLog(`Gagal inisialisasi: ${err.message}`)
@@ -136,11 +173,11 @@ export default function App() {
     if (!currentEventId) return
 
     setIsRunning(true)
-    addLog(`Memulai simulasi ${config.requestCount} concurrent requests...`)
+    addLog(`Memulai simulasi ${config.requestCount} concurrent requests (Delay: ${config.useDelay ? '1s' : '0s'})...`)
 
     try {
       // Trigger via backend batch traffic endpoint
-      const res = await fetch(`${API_BASE}/simulation/traffic?requestCount=${config.requestCount}`, {
+      const res = await fetch(`${API_BASE}/simulation/traffic?requestCount=${config.requestCount}&useDelay=${config.useDelay ?? true}`, {
         method: 'POST'
       })
 
@@ -191,11 +228,12 @@ export default function App() {
           currentEventId={currentEventId}
         />
 
-        {/* 2. Live Backend Monitor (Issue #13) */}
+        {/* 2. Live Backend Monitor (Issue #13 & #19) */}
         <LiveMonitor
           status={status}
           isConnected={isConnected}
           logs={logs}
+          memoryHistory={memoryHistory}
         />
 
         {/* 3. Result Dashboard (Issue #14) */}
