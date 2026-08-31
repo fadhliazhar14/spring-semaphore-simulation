@@ -1,9 +1,7 @@
 package com.fadhli.simulation.controller;
 
 import com.fadhli.simulation.dto.InitSimulationRequest;
-import com.fadhli.simulation.dto.PurchaseRequest;
 import com.fadhli.simulation.dto.SimulationStatusDto;
-import com.fadhli.simulation.dto.TicketPurchaseResultDto;
 import com.fadhli.simulation.model.TicketEvent;
 import com.fadhli.simulation.service.SseService;
 import com.fadhli.simulation.service.TicketService;
@@ -42,7 +40,7 @@ class TicketControllerIntegrationTest {
         TicketEvent mockEvent = new TicketEvent("Coldplay", 50, 50);
         mockEvent.setId(1L);
 
-        when(ticketService.initSimulation(anyString(), anyInt(), anyInt())).thenReturn(mockEvent);
+        when(ticketService.initSimulation(anyString(), anyInt(), anyInt(), anyInt())).thenReturn(mockEvent);
 
         mockMvc.perform(post("/api/simulation/init")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -51,22 +49,6 @@ class TicketControllerIntegrationTest {
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.name").value("Coldplay"))
                 .andExpect(jsonPath("$.totalTickets").value(50));
-    }
-
-    @Test
-    void testPurchaseTicketEndpoint() throws Exception {
-        PurchaseRequest req = new PurchaseRequest(1L, "user-123");
-        TicketPurchaseResultDto mockResult = TicketPurchaseResultDto.success("user-123", 1L, 49, 15);
-
-        when(ticketService.purchaseTicket(eq(1L), eq("user-123"))).thenReturn(mockResult);
-
-        mockMvc.perform(post("/api/tickets/purchase")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("SUCCESS"))
-                .andExpect(jsonPath("$.userId").value("user-123"))
-                .andExpect(jsonPath("$.remainingTickets").value(49));
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.fadhli.simulation.service;
 
 import com.fadhli.simulation.dto.SimulationStatusDto;
 import com.fadhli.simulation.dto.TicketPurchaseResultDto;
+import com.fadhli.simulation.manager.SemaphoreManager;
 import com.fadhli.simulation.model.TicketEvent;
 import com.fadhli.simulation.repository.TicketEventRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -24,6 +25,9 @@ class TicketConcurrencyIntegrationTest {
 
     @Autowired
     private TicketService ticketService;
+
+    @Autowired
+    private SemaphoreManager semaphoreManager;
 
     @Autowired
     private TicketEventRepository ticketEventRepository;
@@ -82,5 +86,13 @@ class TicketConcurrencyIntegrationTest {
         assertEquals(initialStock, status.getSuccessRequests(), "Status successRequests count should be correct");
         assertEquals(totalRequests - initialStock, status.getFailedOutOfStock(), "Status failedOutOfStock count should be correct");
         assertEquals(0, status.getActivePermits(), "All permits should be released");
+
+        // Verify session recorded in Redis for successful users
+        results.stream()
+                .filter(r -> r.getStatus() == TicketPurchaseResultDto.Status.SUCCESS)
+                .forEach(r -> {
+                    String sessionStatus = semaphoreManager.getSession(eventId, r.getUserId());
+                    assertEquals("PURCHASED", sessionStatus, "Successful user session must be PURCHASED in Redis");
+                });
     }
 }

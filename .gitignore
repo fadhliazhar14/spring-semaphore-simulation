@@ -1,5 +1,6 @@
 # Environment variable files and secrets
 env-setup.txt
+todolist.txt
 *.env
 *.env.*
 *env*.txt

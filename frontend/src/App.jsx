@@ -10,7 +10,9 @@ export default function App() {
     eventName: 'Coldplay War Ticket Simulation 2026',
     totalTickets: 100,
     semaphorePermits: 5,
-    requestCount: 300
+    requestCount: 300,
+    enableDelay: true,
+    processingDelayMs: 30
   })
 
   const [currentEventId, setCurrentEventId] = useState(null)
@@ -103,7 +105,8 @@ export default function App() {
         body: JSON.stringify({
           eventName: config.eventName,
           totalTickets: config.totalTickets,
-          semaphorePermits: config.semaphorePermits
+          semaphorePermits: config.semaphorePermits,
+          processingDelayMs: config.enableDelay ? config.processingDelayMs : 0
         })
       })
 
