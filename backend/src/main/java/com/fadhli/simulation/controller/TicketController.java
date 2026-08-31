@@ -1,9 +1,7 @@
 package com.fadhli.simulation.controller;
 
 import com.fadhli.simulation.dto.InitSimulationRequest;
-import com.fadhli.simulation.dto.PurchaseRequest;
 import com.fadhli.simulation.dto.SimulationStatusDto;
-import com.fadhli.simulation.dto.TicketPurchaseResultDto;
 import com.fadhli.simulation.model.TicketEvent;
 import com.fadhli.simulation.service.SseService;
 import com.fadhli.simulation.service.TicketService;
@@ -12,7 +10,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -38,27 +35,13 @@ public class TicketController {
                 : "War Ticket Semaphore Simulation";
         int stock = request.getTotalTickets() > 0 ? request.getTotalTickets() : 100;
         int permits = request.getSemaphorePermits() > 0 ? request.getSemaphorePermits() : 5;
+        int delayMs = request.getProcessingDelayMs() >= 0 ? request.getProcessingDelayMs() : 30;
 
         TicketEvent event = ticketService.initSimulation(name, stock, permits);
         if (request.getUseDelay() != null) {
             ticketService.setDelayEnabled(request.getUseDelay());
         }
         return ResponseEntity.ok(event);
-    }
-
-    @PostMapping("/tickets/purchase")
-    public ResponseEntity<TicketPurchaseResultDto> purchaseTicket(@RequestBody PurchaseRequest request) {
-        Long eventId = request.getEventId() != null ? request.getEventId() : ticketService.getCurrentEventId();
-        String userId = (request.getUserId() != null && !request.getUserId().isBlank())
-                ? request.getUserId()
-                : "user-" + UUID.randomUUID().toString().substring(0, 6);
-
-        if (eventId == null) {
-            return ResponseEntity.badRequest().body(TicketPurchaseResultDto.error(userId, null, "Simulasi belum diinisialisasi!", 0));
-        }
-
-        TicketPurchaseResultDto result = ticketService.purchaseTicket(eventId, userId);
-        return ResponseEntity.ok(result);
     }
 
     @GetMapping(value = "/simulation/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -46,17 +47,26 @@ public class TicketService {
 
     @Transactional
     public TicketEvent initSimulation(String eventName, int initialStock, int semaphorePermits) {
+        return initSimulation(eventName, initialStock, semaphorePermits, 30);
+    }
+
+    @Transactional
+    public TicketEvent initSimulation(String eventName, int initialStock, int semaphorePermits, int processingDelayMs) {
         totalRequests.set(0);
         successRequests.set(0);
         failedOutOfStock.set(0);
         failedTimeout.set(0);
 
+        this.processingDelayMs = Math.max(0, processingDelayMs);
         semaphoreManager.init(semaphorePermits);
 
         TicketEvent event = new TicketEvent(eventName, initialStock, initialStock);
         TicketEvent savedEvent = ticketEventRepository.save(event);
         this.currentEventId = savedEvent.getId();
         this.currentTotalTickets = initialStock;
+
+        // Inisialisasi kuota stok tiket di Redis
+        semaphoreManager.initStock(savedEvent.getId(), initialStock);
 
         broadcastCurrentStatus("Simulasi berhasil diinisialisasi");
         return savedEvent;
@@ -71,7 +81,7 @@ public class TicketService {
 
         boolean acquired = false;
         try {
-            // 2. Acquire permit dengan timeout
+            // 2. Acquire permit dari Redisson Distributed Semaphore dengan timeout
             acquired = semaphoreManager.tryAcquire(DEFAULT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             if (!acquired) {
                 failedTimeout.incrementAndGet();
@@ -89,19 +99,21 @@ public class TicketService {
                 }
             }
 
-            // 3. Kurangi stok tiket secara atomik di database via transactional proxy method
+            // 5. Kurangi stok tiket secara atomik di database (PostgreSQL source of truth)
             boolean success = self.processDatabaseTransaction(eventId);
             long duration = System.currentTimeMillis() - startTime;
 
             if (success) {
                 successRequests.incrementAndGet();
+                semaphoreManager.recordSession(eventId, userId, "PURCHASED", Duration.ofMinutes(15));
                 TicketEvent event = ticketEventRepository.findById(eventId).orElse(null);
                 int remaining = event != null ? event.getAvailableTickets() : 0;
                 broadcastCurrentStatus("User " + userId + " berhasil mendapatkan tiket");
                 return TicketPurchaseResultDto.success(userId, eventId, remaining, duration);
             } else {
                 failedOutOfStock.incrementAndGet();
-                broadcastCurrentStatus("User " + userId + " gagal, stok tiket habis");
+                semaphoreManager.recordSession(eventId, userId, "FAILED_OUT_OF_STOCK", Duration.ofMinutes(5));
+                broadcastCurrentStatus("User " + userId + " gagal, stok tiket habis (DB)");
                 return TicketPurchaseResultDto.outOfStock(userId, eventId, duration);
             }
 
@@ -112,7 +124,7 @@ public class TicketService {
             broadcastCurrentStatus("User " + userId + " terinterupsi saat menunggu");
             return TicketPurchaseResultDto.error(userId, eventId, "Request interrupted", duration);
         } finally {
-            // 4. Release permit
+            // 6. Release permit di Redisson Semaphore
             if (acquired) {
                 semaphoreManager.release();
                 broadcastCurrentStatus("Permit dilepaskan setelah melayani " + userId);
