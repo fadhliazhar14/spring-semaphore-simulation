@@ -2,13 +2,17 @@ package com.fadhli.simulation.controller;
 
 import com.fadhli.simulation.dto.InitSimulationRequest;
 import com.fadhli.simulation.dto.SimulationStatusDto;
+import com.fadhli.simulation.manager.ApplicationInstance;
 import com.fadhli.simulation.model.TicketEvent;
 import com.fadhli.simulation.service.SseService;
+import com.fadhli.simulation.service.SessionService;
+import com.fadhli.simulation.service.WarTrafficGenerator;
 import com.fadhli.simulation.service.TicketService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -20,6 +24,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(TicketController.class)
+// Identitas instance dipakai controller untuk memberi nama bot, dan tidak ikut terbawa oleh
+// irisan web. Bean aslinya diimpor, bukan di-mock, karena isinya hanya membaca satu properti.
+@Import(ApplicationInstance.class)
 class TicketControllerIntegrationTest {
 
     @Autowired
@@ -34,13 +41,19 @@ class TicketControllerIntegrationTest {
     @MockitoBean
     private SseService sseService;
 
+    @MockitoBean
+    private WarTrafficGenerator trafficGenerator;
+
+    @MockitoBean
+    private SessionService sessionService;
+
     @Test
     void testInitSimulationEndpoint() throws Exception {
         InitSimulationRequest req = new InitSimulationRequest("Coldplay", 50, 5);
         TicketEvent mockEvent = new TicketEvent("Coldplay", 50, 50);
         mockEvent.setId(1L);
 
-        when(ticketService.initSimulation(anyString(), anyInt(), anyInt(), anyInt())).thenReturn(mockEvent);
+        when(ticketService.initSimulation(anyString(), anyInt(), anyInt(), anyInt(), anyInt())).thenReturn(mockEvent);
 
         mockMvc.perform(post("/api/simulation/init")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -54,7 +67,7 @@ class TicketControllerIntegrationTest {
     @Test
     void testGetStatusEndpoint() throws Exception {
         SimulationStatusDto mockStatus = new SimulationStatusDto(
-                50, 100, 2, 5, 10, 100, 50, 0, 0, "Running"
+                50, 100, 2, 5, 100, 50, 0, 0, 0, 0, 0, "Running"
         );
 
         when(ticketService.getCurrentStatus()).thenReturn(mockStatus);

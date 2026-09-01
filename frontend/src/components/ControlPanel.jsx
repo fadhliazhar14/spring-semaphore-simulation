@@ -1,5 +1,31 @@
 import React from 'react'
 
+// Field yang isinya teks bebas; sisanya dipaksa menjadi angka positif.
+const TEXT_FIELDS = new Set(['eventName', 'backends'])
+
+// Satu sesi menempuh tiga langkah: pilih, bayar, terbit.
+const STEPS_PER_SESSION = 3
+
+/**
+ * Memperkirakan berapa pembeli yang akan kebagian slot, sebelum simulasi dijalankan.
+ *
+ * Ini pertanyaan yang paling sering muncul saat melihat papan penuh penolakan: kenapa slot yang
+ * sudah kosong tidak diisi pembeli lain. Jawabannya selalu perbandingan dua durasi — berapa lama
+ * satu sesi menahan slot, dan berapa lama seorang pembeli bersedia terus mencoba. Kalau jatah
+ * bertahan lebih pendek daripada satu sesi, semua pembeli sudah menyerah sebelum slot pertama
+ * bebas, dan gelombang berikutnya tidak pernah ada.
+ */
+function forecast(config) {
+  const sessionMs = STEPS_PER_SESSION * (config.slowMotion ? config.thinkTimeMs : 1)
+  const budgetMs = config.maxAttempts * config.retryDelayMs
+  const waves = 1 + Math.floor(budgetMs / Math.max(1, sessionMs))
+  const reachable = Math.min(config.requestCount, config.semaphorePermits * waves)
+  const drainMs = (config.requestCount / Math.max(1, config.semaphorePermits)) * sessionMs
+  return { sessionMs, budgetMs, reachable, drainMs }
+}
+
+const asSeconds = (ms) => `${(ms / 1000).toFixed(1)} s`
+
 export default function ControlPanel({
   config,
   setConfig,
@@ -7,176 +33,256 @@ export default function ControlPanel({
   onStartTraffic,
   isInitializing,
   isRunning,
-  currentEventId
+  currentEventId,
+  instances = [],
+  onInjectWave,
+  onRestock
 }) {
   const handleChange = (e) => {
     const { name, value } = e.target
     setConfig((prev) => ({
       ...prev,
-      [name]: name === 'eventName' ? value : Math.max(1, parseInt(value) || 1)
+      [name]: TEXT_FIELDS.has(name) ? value : Math.max(1, parseInt(value) || 1)
     }))
   }
 
+  const { sessionMs, budgetMs, reachable, drainMs } = forecast(config)
+  const starved = reachable < config.requestCount
+
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl backdrop-blur-sm">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <span className="p-2 bg-indigo-500/10 text-indigo-400 rounded-lg">⚙️</span>
-            Control Panel Simulasi
-          </h2>
-          <p className="text-sm text-slate-400 mt-1">
-            Konfigurasi parameter Semaphore dan picu ribuan concurrent request.
-          </p>
-        </div>
-        <div>
-          {currentEventId ? (
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              ● Event ID #{currentEventId} Siap
-            </span>
-          ) : (
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-              ○ Belum Diinisialisasi
-            </span>
-          )}
-        </div>
+    <section className="panel">
+      <div className="phead">
+        <span className="ptitle">Kendali Simulasi</span>
+        <span className="pnote">
+          {currentEventId ? `event #${currentEventId} siap` : 'belum diinisialisasi'}
+        </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        {/* Event Name */}
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-            Nama Event
-          </label>
+      {/* Knob kecepatan. Waktu berpikir pembeli antar langkah — itu pula yang memperlambat
+          simulasi supaya bisa diamati, jadi namanya disebut apa adanya, bukan "delay proses". */}
+      <div className="speedrow">
+        <label className="speedtoggle">
           <input
-            type="text"
-            name="eventName"
-            value={config.eventName}
-            onChange={handleChange}
+            type="checkbox"
+            checked={config.slowMotion}
+            onChange={(e) => setConfig((prev) => ({ ...prev, slowMotion: e.target.checked }))}
             disabled={isRunning}
-            className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50"
-            placeholder="Misal: Coldplay Tour 2026"
           />
-        </div>
+          <span>Perlambat simulasi</span>
+        </label>
 
-        {/* Total Tickets */}
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-            Stok Tiket Awal
-          </label>
-          <input
-            type="number"
-            name="totalTickets"
-            value={config.totalTickets}
-            onChange={handleChange}
-            disabled={isRunning}
-            min="1"
-            className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50"
-          />
-        </div>
-
-        {/* Semaphore Permits */}
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-            Batas Permit Semaphore
-          </label>
-          <input
-            type="number"
-            name="semaphorePermits"
-            value={config.semaphorePermits}
-            onChange={handleChange}
-            disabled={isRunning}
-            min="1"
-            max="100"
-            className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50"
-          />
-        </div>
-
-        {/* Total Simulated Requests */}
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-            Jumlah Request War
-          </label>
-          <input
-            type="number"
-            name="requestCount"
-            value={config.requestCount}
-            onChange={handleChange}
-            disabled={isRunning}
-            min="1"
-            max="5000"
-            className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50"
-          />
-        </div>
+        <input
+          type="range"
+          name="thinkTimeMs"
+          min="0"
+          max="3000"
+          step="50"
+          value={config.thinkTimeMs}
+          onChange={handleChange}
+          disabled={isRunning || !config.slowMotion}
+        />
+        <span className="speedval">
+          {config.slowMotion ? `${config.thinkTimeMs} ms` : 'secepat mungkin'}
+        </span>
+        <span className="hint">waktu berpikir pembeli antar langkah</span>
       </div>
 
-      {/* Simulation Options: Delay Toggle */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 mb-6 bg-slate-950/60 border border-slate-800/80 rounded-xl">
-        <div className="flex items-center gap-3">
-          <span className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg text-sm">⏱️</span>
-          <div>
-            <div className="text-xs font-semibold text-slate-200">Gunakan Delay Simulasi (1 Detik)</div>
-            <div className="text-[11px] text-slate-400">
-              {config.useDelay
-                ? 'Aktif — Setiap transaksi menahan slot permit selama 1 detik agar pergerakan slot Semaphore mudah diamati.'
-                : 'Nonaktif — Simulasi berjalan instan dengan throughput tinggi tanpa jeda buatan.'}
+      <div className="rail">
+        <div className="fields">
+          <div className="field wide">
+            <label htmlFor="eventName">Nama event</label>
+            <input
+              id="eventName"
+              type="text"
+              name="eventName"
+              value={config.eventName}
+              onChange={handleChange}
+              disabled={isRunning}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="semaphorePermits">Permit slot</label>
+            <input
+              id="semaphorePermits"
+              type="number"
+              name="semaphorePermits"
+              value={config.semaphorePermits}
+              onChange={handleChange}
+              min="1"
+              disabled={isRunning}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="totalTickets">Stok tiket</label>
+            <input
+              id="totalTickets"
+              type="number"
+              name="totalTickets"
+              value={config.totalTickets}
+              onChange={handleChange}
+              min="1"
+              disabled={isRunning}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="requestCount">Jumlah pembeli</label>
+            <input
+              id="requestCount"
+              type="number"
+              name="requestCount"
+              value={config.requestCount}
+              onChange={handleChange}
+              min="1"
+              disabled={isRunning}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="maxAttempts">Coba ulang maks (kali)</label>
+            <input
+              id="maxAttempts"
+              type="number"
+              name="maxAttempts"
+              value={config.maxAttempts}
+              onChange={handleChange}
+              min="1"
+              disabled={isRunning}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="retryDelayMs">Jeda coba ulang (ms)</label>
+            <input
+              id="retryDelayMs"
+              type="number"
+              name="retryDelayMs"
+              value={config.retryDelayMs}
+              onChange={handleChange}
+              min="1"
+              disabled={isRunning}
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="paymentSuccessPercent">Peluang bayar sukses (%)</label>
+            <input
+              id="paymentSuccessPercent"
+              type="number"
+              name="paymentSuccessPercent"
+              value={config.paymentSuccessPercent}
+              onChange={handleChange}
+              min="0"
+              max="100"
+              disabled={isRunning}
+            />
+          </div>
+
+          <div className="field wide">
+            <label htmlFor="backends">Instance back-end (dipisah koma)</label>
+            <input
+              id="backends"
+              type="text"
+              name="backends"
+              value={config.backends}
+              onChange={handleChange}
+              disabled={isRunning}
+            />
+          </div>
+
+          <div className="field wide">
+            <label>Terdeteksi hidup</label>
+            <div className="insts">
+              {instances.length === 0 ? (
+                <span className="hint">belum ada detak jantung</span>
+              ) : (
+                instances.map((inst) => (
+                  <span
+                    key={inst.id}
+                    className={`inst ${inst.alive ? 'alive' : 'dead'}`}
+                    title={inst.alive ? 'berdetak' : `diam ${(inst.silentMs / 1000).toFixed(1)} detik`}
+                  >
+                    <i />
+                    {inst.id}
+                    {inst.self ? ' · papan' : ''}
+                  </span>
+                ))
+              )}
             </div>
           </div>
         </div>
-        <label className="relative inline-flex items-center cursor-pointer shrink-0">
-          <input
-            type="checkbox"
-            name="useDelay"
-            checked={config.useDelay ?? true}
-            onChange={(e) => setConfig((prev) => ({ ...prev, useDelay: e.target.checked }))}
-            disabled={isRunning}
-            className="sr-only peer"
-          />
-          <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-        </label>
-      </div>
 
-      <div className="flex flex-wrap gap-4 pt-2 border-t border-slate-800/80">
-        <button
-          onClick={onInit}
-          disabled={isRunning || isInitializing}
-          className="flex-1 md:flex-none px-6 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-medium text-sm transition-all duration-200 border border-slate-700 flex items-center justify-center gap-2 disabled:opacity-50"
-        >
-          {isInitializing ? (
-            <>
-              <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              <span>Menginisialisasi...</span>
-            </>
-          ) : (
-            <>
-              <span>🔄</span> Inisialisasi / Reset Simulasi
-            </>
-          )}
-        </button>
+        <div className="transport">
+          <div className="btnrow">
+            <button onClick={onInit} disabled={isInitializing || isRunning}>
+              {isInitializing ? 'Menyiapkan...' : 'Inisialisasi'}
+            </button>
+            <button
+              className="primary"
+              onClick={onStartTraffic}
+              disabled={!currentEventId || isRunning}
+              style={{ flex: 1 }}
+            >
+              Jalankan
+            </button>
+          </div>
 
-        <button
-          onClick={onStartTraffic}
-          disabled={!currentEventId || isRunning}
-          className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-bold text-sm shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isRunning ? (
-            <>
-              <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              <span>Simulasi War Sedang Berlangsung...</span>
-            </>
-          ) : (
-            <>
-              <span>⚡</span> Mulai Simulasi War Ticket ({config.requestCount} Request)
-            </>
-          )}
-        </button>
+          {/* Suntikan di tengah jalan. Sengaja tidak ikut terkunci oleh isRunning: seluruh
+              gunanya justru menambah beban ketika simulasi sedang berjalan. */}
+          <div className="wave">
+            <div className="field">
+              <label htmlFor="waveCount">Pembeli</label>
+              <input
+                id="waveCount"
+                type="number"
+                name="waveCount"
+                value={config.waveCount}
+                onChange={handleChange}
+                min="1"
+              />
+            </div>
+            <button className="wavebtn" onClick={onInjectWave} disabled={!currentEventId}>
+              Bom gelombang
+            </button>
+
+            <div className="field">
+              <label htmlFor="restockAmount">Stok</label>
+              <input
+                id="restockAmount"
+                type="number"
+                name="restockAmount"
+                value={config.restockAmount}
+                onChange={handleChange}
+                min="1"
+              />
+            </div>
+            <button className="stockbtn" onClick={onRestock} disabled={!currentEventId}>
+              + Stok
+            </button>
+          </div>
+
+          <span className="hint">
+            Tidak ada antrean. Yang tidak kebagian slot ditolak seketika, lalu mencoba lagi.
+          </span>
+
+          <div className={`forecast${starved ? ' starved' : ''}`}>
+            <span>satu sesi menahan slot <b>{asSeconds(sessionMs)}</b></span>
+            <span>pembeli bertahan <b>{asSeconds(budgetMs)}</b></span>
+            <span>
+              perkiraan kebagian <b>{reachable}</b> dari {config.requestCount} pembeli
+            </span>
+            {starved && (
+              <span className="why">
+                Jatah bertahan lebih pendek daripada satu sesi, jadi semua yang ditolak sudah
+                menyerah sebelum slot pertama bebas. Melayani semuanya butuh {asSeconds(drainMs)}
+                {' '}— perbesar coba ulang, perpanjang jedanya, atau perpendek waktu berpikir.
+              </span>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+    </section>
   )
 }
