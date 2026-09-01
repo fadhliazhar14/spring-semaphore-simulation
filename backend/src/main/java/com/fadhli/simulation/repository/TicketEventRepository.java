@@ -13,4 +13,14 @@ public interface TicketEventRepository extends JpaRepository<TicketEvent, Long> 
     @Modifying(clearAutomatically = true)
     @Query("UPDATE TicketEvent t SET t.availableTickets = t.availableTickets - 1, t.updatedAt = CURRENT_TIMESTAMP WHERE t.id = :eventId AND t.availableTickets > 0")
     int decrementTicketStock(@Param("eventId") Long eventId);
+
+    /**
+     * Menambah stok tiket. Kapasitas total ikut naik supaya perbandingan terjual terhadap total
+     * tetap masuk akal setelah stok ditambah di tengah simulasi.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE TicketEvent t SET t.availableTickets = t.availableTickets + :amount, "
+            + "t.totalTickets = t.totalTickets + :amount, t.updatedAt = CURRENT_TIMESTAMP "
+            + "WHERE t.id = :eventId")
+    int restock(@Param("eventId") Long eventId, @Param("amount") int amount);
 }

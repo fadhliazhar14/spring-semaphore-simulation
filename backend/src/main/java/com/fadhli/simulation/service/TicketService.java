@@ -1,188 +1,188 @@
 package com.fadhli.simulation.service;
 
+import com.fadhli.simulation.dto.InstanceStateDto;
+import com.fadhli.simulation.dto.ResourceUsageDto;
 import com.fadhli.simulation.dto.SimulationStatusDto;
-import com.fadhli.simulation.dto.TicketPurchaseResultDto;
+import com.fadhli.simulation.dto.SlotStateDto;
+import com.fadhli.simulation.manager.ApplicationInstance;
+import com.fadhli.simulation.manager.InstanceRegistry;
 import com.fadhli.simulation.manager.SemaphoreManager;
+import com.fadhli.simulation.manager.SimulationConfig;
+import com.fadhli.simulation.manager.SlotLease;
+import com.fadhli.simulation.manager.PurchaseSession;
+import com.fadhli.simulation.manager.SlotOwner;
+import com.fadhli.simulation.manager.SimulationStateStore;
 import com.fadhli.simulation.model.TicketEvent;
 import com.fadhli.simulation.repository.TicketEventRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class TicketService {
 
-    private static final Logger log = LoggerFactory.getLogger(TicketService.class);
-    private static final long DEFAULT_TIMEOUT_MS = 2000;
+    private static final int DEFAULT_THINK_TIME_MS = 300;
+    private static final int DEFAULT_PAYMENT_SUCCESS_PERCENT = 90;
 
     private final TicketEventRepository ticketEventRepository;
     private final SemaphoreManager semaphoreManager;
+    private final SimulationStateStore store;
     private final SseService sseService;
+    private final ApplicationInstance instance;
+    private final InstanceRegistry instanceRegistry;
     private final TicketService self;
-
-    private final AtomicInteger totalRequests = new AtomicInteger(0);
-    private final AtomicInteger successRequests = new AtomicInteger(0);
-    private final AtomicInteger failedOutOfStock = new AtomicInteger(0);
-    private final AtomicInteger failedTimeout = new AtomicInteger(0);
-
-    private volatile Long currentEventId;
-    private volatile int currentTotalTickets = 0;
-    private volatile int processingDelayMs = 30;
 
     public TicketService(TicketEventRepository ticketEventRepository,
                          SemaphoreManager semaphoreManager,
+                         SimulationStateStore store,
                          SseService sseService,
+                         ApplicationInstance instance,
+                         InstanceRegistry instanceRegistry,
                          @Lazy TicketService self) {
         this.ticketEventRepository = ticketEventRepository;
         this.semaphoreManager = semaphoreManager;
+        this.store = store;
         this.sseService = sseService;
+        this.instance = instance;
+        this.instanceRegistry = instanceRegistry;
         this.self = (self != null) ? self : this;
     }
 
     @Transactional
     public TicketEvent initSimulation(String eventName, int initialStock, int semaphorePermits) {
-        return initSimulation(eventName, initialStock, semaphorePermits, 30);
+        return initSimulation(eventName, initialStock, semaphorePermits,
+                DEFAULT_THINK_TIME_MS, DEFAULT_PAYMENT_SUCCESS_PERCENT);
     }
 
     @Transactional
-    public TicketEvent initSimulation(String eventName, int initialStock, int semaphorePermits, int processingDelayMs) {
-        totalRequests.set(0);
-        successRequests.set(0);
-        failedOutOfStock.set(0);
-        failedTimeout.set(0);
+    public TicketEvent initSimulation(String eventName, int initialStock, int semaphorePermits,
+                                      int thinkTimeMs, int paymentSuccessPercent) {
+        TicketEvent savedEvent = ticketEventRepository.save(
+                new TicketEvent(eventName, initialStock, initialStock));
 
-        this.processingDelayMs = Math.max(0, processingDelayMs);
-        semaphoreManager.init(semaphorePermits);
+        SimulationConfig cfg = store.createSimulation(
+                savedEvent.getId(), initialStock, semaphorePermits,
+                thinkTimeMs, paymentSuccessPercent);
+        semaphoreManager.initSemaphore(cfg.simId(), cfg.permits());
+        semaphoreManager.initStock(cfg.simId(), initialStock);
 
-        TicketEvent event = new TicketEvent(eventName, initialStock, initialStock);
-        TicketEvent savedEvent = ticketEventRepository.save(event);
-        this.currentEventId = savedEvent.getId();
-        this.currentTotalTickets = initialStock;
-
-        // Inisialisasi kuota stok tiket di Redis
-        semaphoreManager.initStock(savedEvent.getId(), initialStock);
-
-        broadcastCurrentStatus("Simulasi berhasil diinisialisasi");
+        broadcastCurrentStatus(cfg, "Simulasi berhasil diinisialisasi");
         return savedEvent;
     }
 
-    public TicketPurchaseResultDto purchaseTicket(Long eventId, String userId) {
-        long startTime = System.currentTimeMillis();
-        totalRequests.incrementAndGet();
-
-        // 1. Broadcast status saat request masuk antrean
-        broadcastCurrentStatus("User " + userId + " masuk antrean...");
-
-        boolean acquired = false;
-        try {
-            // 2. Acquire permit dari Redisson Distributed Semaphore dengan timeout
-            acquired = semaphoreManager.tryAcquire(DEFAULT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-            if (!acquired) {
-                failedTimeout.incrementAndGet();
-                long duration = System.currentTimeMillis() - startTime;
-                broadcastCurrentStatus("User " + userId + " gagal karena timeout antrean");
-                return TicketPurchaseResultDto.timeout(userId, eventId, duration);
-            }
-
-            // 3. Catat sesi aktif user di Redis (TTL 5 menit)
-            semaphoreManager.recordSession(eventId, userId, "PROCESSING", Duration.ofMinutes(5));
-
-            // Simulasi waktu proses bisnis (misal validasi pembayaran / antrean tiket)
-            if (this.processingDelayMs > 0) {
-                try {
-                    Thread.sleep(this.processingDelayMs);
-                } catch (InterruptedException ignored) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-
-            // 4. Fast-check & decrement stok tiket di Redis secara atomik
-            boolean stockReservedInRedis = semaphoreManager.tryReserveStock(eventId);
-            if (!stockReservedInRedis) {
-                failedOutOfStock.incrementAndGet();
-                semaphoreManager.recordSession(eventId, userId, "FAILED_OUT_OF_STOCK", Duration.ofMinutes(5));
-                long duration = System.currentTimeMillis() - startTime;
-                broadcastCurrentStatus("User " + userId + " gagal, stok tiket habis (Redis fast-check)");
-                return TicketPurchaseResultDto.outOfStock(userId, eventId, duration);
-            }
-
-            // 5. Kurangi stok tiket secara atomik di database (PostgreSQL source of truth)
-            boolean success = self.processDatabaseTransaction(eventId);
-            long duration = System.currentTimeMillis() - startTime;
-
-            if (success) {
-                successRequests.incrementAndGet();
-                semaphoreManager.recordSession(eventId, userId, "PURCHASED", Duration.ofMinutes(15));
-                TicketEvent event = ticketEventRepository.findById(eventId).orElse(null);
-                int remaining = event != null ? event.getAvailableTickets() : 0;
-                broadcastCurrentStatus("User " + userId + " berhasil mendapatkan tiket");
-                return TicketPurchaseResultDto.success(userId, eventId, remaining, duration);
-            } else {
-                failedOutOfStock.incrementAndGet();
-                semaphoreManager.recordSession(eventId, userId, "FAILED_OUT_OF_STOCK", Duration.ofMinutes(5));
-                broadcastCurrentStatus("User " + userId + " gagal, stok tiket habis (DB)");
-                return TicketPurchaseResultDto.outOfStock(userId, eventId, duration);
-            }
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            long duration = System.currentTimeMillis() - startTime;
-            failedTimeout.incrementAndGet();
-            broadcastCurrentStatus("User " + userId + " terinterupsi saat menunggu");
-            return TicketPurchaseResultDto.error(userId, eventId, "Request interrupted", duration);
-        } finally {
-            // 6. Release permit di Redisson Semaphore
-            if (acquired) {
-                semaphoreManager.release();
-                broadcastCurrentStatus("Permit dilepaskan setelah melayani " + userId);
-            }
+    /**
+     * Menambah stok tiket di tengah simulasi.
+     *
+     * <p>Urutannya disengaja: basis data lebih dulu, baru kuota cepat di Redis. Redis adalah
+     * penjaga di depan yang menolak permintaan saat stok habis, sementara basis data adalah
+     * kebenaran terakhir. Menaikkan Redis lebih dulu berarti ada jendela waktu ketika request
+     * dilewatkan oleh penjaga padahal barangnya belum ada di basis data.
+     */
+    @Transactional
+    public int restock(String simId, int amount) {
+        SimulationConfig cfg = store.config(simId);
+        if (cfg == null || amount <= 0) {
+            return 0;
         }
+        ticketEventRepository.restock(cfg.eventId(), amount);
+        semaphoreManager.addStock(simId, amount);
+        store.increaseBy(simId, SimulationStateStore.METRIC_RESTOCKED, amount);
+        sseService.activity("Stok ditambah " + amount + " tiket");
+        return amount;
     }
 
-    @Transactional
-    public boolean processDatabaseTransaction(Long eventId) {
-        return ticketEventRepository.decrementTicketStock(eventId) > 0;
+    public String getCurrentSimId() {
+        return store.currentSimId();
     }
 
     public SimulationStatusDto getCurrentStatus() {
-        int availableTickets = 0;
-        if (currentEventId != null) {
-            availableTickets = ticketEventRepository.findById(currentEventId)
-                    .map(TicketEvent::getAvailableTickets)
-                    .orElse(0);
+        SimulationConfig cfg = store.config(store.currentSimId());
+        if (cfg == null) {
+            return new SimulationStatusDto(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "Belum ada simulasi");
         }
+        return buildStatus(cfg, "Status update");
+    }
 
-        return new SimulationStatusDto(
+    private SimulationStatusDto buildStatus(SimulationConfig cfg, String message) {
+        int availableTickets = ticketEventRepository.findById(cfg.eventId())
+                .map(TicketEvent::getAvailableTickets)
+                .orElse(0);
+        SimulationStateStore.Metrics m = store.metrics(cfg.simId());
+
+        // Kapasitas yang dilaporkan adalah stok awal ditambah yang disuntikkan di tengah jalan,
+        // supaya perbandingan terjual terhadap total tidak menjadi lebih dari seratus persen.
+        int totalCapacity = cfg.totalTickets()
+                + (int) store.metric(cfg.simId(), SimulationStateStore.METRIC_RESTOCKED);
+
+        SimulationStatusDto status = new SimulationStatusDto(
                 availableTickets,
-                currentTotalTickets,
-                semaphoreManager.getActivePermits(),
-                semaphoreManager.getTotalPermits(),
-                semaphoreManager.getQueueLength(),
-                totalRequests.get(),
-                successRequests.get(),
-                failedOutOfStock.get(),
-                failedTimeout.get(),
-                "Status update"
-        );
+                totalCapacity,
+                semaphoreManager.getActivePermits(cfg.simId()),
+                cfg.permits(),
+                m.total(),
+                m.success(),
+                m.outOfStock(),
+                m.rejected(),
+                m.paymentFailed(),
+                m.abandoned(),
+                m.gaveUp(),
+                message);
+        status.setSlots(buildSlots(cfg));
+        status.setSessionLeaseMs(SessionService.sessionLease(cfg).toMillis());
+        status.setReportedBy(instance.id());
+        status.setInstances(instanceRegistry.instances().stream()
+                .map(h -> new InstanceStateDto(h.id(), h.alive(), h.silentMs(), h.self(),
+                        h.usage() == null ? null : new ResourceUsageDto(
+                                h.usage().heapUsedBytes(), h.usage().heapMaxBytes(),
+                                h.usage().cpuPercent(), h.usage().threadCount())))
+                .toList());
+        return status;
     }
 
-    private void broadcastCurrentStatus(String message) {
-        SimulationStatusDto status = getCurrentStatus();
-        status.setMessage(message);
-        sseService.broadcast(status);
+    /**
+     * Menyusun keadaan tiap slot, termasuk slot yang sedang kosong.
+     *
+     * <p>Slot kosong tetap dikirim supaya papan observasi punya jumlah kotak yang tetap dan tidak
+     * berubah bentuk tiap kali ada yang mengambil atau melepas slot.
+     */
+    private List<SlotStateDto> buildSlots(SimulationConfig cfg) {
+        Map<String, SlotOwner> owners = semaphoreManager.getSlotOwners(cfg.simId());
+        Map<String, Long> deadlines = semaphoreManager.getSlotLeaseDeadlines(cfg.simId());
+        // Langkah yang sedang dijalani hanya tercatat di sesi. Seluruh sesi yang sedang memegang
+        // slot dibaca sekaligus supaya satu snapshot tidak berubah menjadi N perjalanan ke Redis.
+        Map<String, PurchaseSession> sessions = semaphoreManager.getSessions(cfg.simId(),
+                owners.values().stream().map(SlotOwner::userId).toList());
+        long now = System.currentTimeMillis();
+
+        List<SlotStateDto> slots = new ArrayList<>(cfg.permits());
+        for (int number = 1; number <= cfg.permits(); number++) {
+            String token = SlotLease.token(number);
+            SlotOwner owner = owners.get(token);
+            if (owner == null) {
+                slots.add(SlotStateDto.idle(number));
+                continue;
+            }
+            PurchaseSession session = sessions.get(owner.userId());
+            String phase = (session == null) ? "?" : session.state().name();
+            long deadline = deadlines.getOrDefault(token, now);
+            slots.add(new SlotStateDto(token, number, true, owner.userId(), phase,
+                    owner.instanceId(), now - owner.acquiredAt(), deadline - now));
+        }
+        return slots;
     }
 
-    public Long getCurrentEventId() {
-        return currentEventId;
+    /** Snapshot lengkap simulasi yang sedang aktif, atau {@code null} bila belum ada. */
+    SimulationStatusDto currentSnapshot() {
+        SimulationConfig cfg = store.config(store.currentSimId());
+        return (cfg == null) ? null : buildStatus(cfg, null);
     }
 
-    public int getCurrentTotalTickets() {
-        return currentTotalTickets;
+    private void broadcastCurrentStatus(SimulationConfig cfg, String message) {
+        sseService.broadcast(buildStatus(cfg, message));
     }
 }

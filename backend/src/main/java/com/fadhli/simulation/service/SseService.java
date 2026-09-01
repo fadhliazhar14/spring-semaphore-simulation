@@ -56,13 +56,15 @@ public class SseService {
             return;
         }
 
+        send("STATUS_UPDATE", status);
+    }
+
+    private void send(String eventName, Object payload) {
         List<SseEmitter> deadEmitters = new CopyOnWriteArrayList<>();
 
         for (SseEmitter emitter : emitters) {
             try {
-                emitter.send(SseEmitter.event()
-                        .name("STATUS_UPDATE")
-                        .data(status));
+                emitter.send(SseEmitter.event().name(eventName).data(payload));
             } catch (Exception e) {
                 log.warn("Failed to send SSE event to client: {}", e.getMessage());
                 deadEmitters.add(emitter);
@@ -72,6 +74,22 @@ public class SseService {
         if (!deadEmitters.isEmpty()) {
             emitters.removeAll(deadEmitters);
         }
+    }
+
+    /**
+     * Mengirim satu baris catatan aktivitas tanpa membawa snapshot apa pun.
+     *
+     * <p>Dipisahkan dari {@link #broadcast(SimulationStatusDto)} karena keduanya punya sifat yang
+     * berbeda. Catatan aktivitas lahir tiap kali sesuatu terjadi dan isinya hanya sebaris teks,
+     * sedangkan snapshot mahal — sekali susun berarti sekali baca ke Postgres dan beberapa kali ke
+     * Redis. Dulu keduanya dikirim bersamaan, sehingga tiga ratus request menghasilkan hampir
+     * seribu snapshot dan papan observasi justru tersendat oleh telemetrinya sendiri.
+     */
+    public void activity(String message) {
+        if (message == null || emitters.isEmpty()) {
+            return;
+        }
+        send("ACTIVITY", message);
     }
 
     public int getSubscriberCount() {

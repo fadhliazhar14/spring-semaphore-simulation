@@ -4,7 +4,10 @@ public class InitSimulationRequest {
     private String eventName;
     private int totalTickets;
     private int semaphorePermits;
-    private int processingDelayMs = 30;
+    /** Jeda pembeli antar langkah. Ini pula knob untuk memperlambat simulasi. */
+    private int thinkTimeMs = 300;
+    /** Peluang pembayaran berhasil, dalam persen. */
+    private int paymentSuccessPercent = 90;
 
     public InitSimulationRequest() {
     }
@@ -13,14 +16,14 @@ public class InitSimulationRequest {
         this.eventName = eventName;
         this.totalTickets = totalTickets;
         this.semaphorePermits = semaphorePermits;
-        this.processingDelayMs = 30;
+        this.thinkTimeMs = 300;
     }
 
-    public InitSimulationRequest(String eventName, int totalTickets, int semaphorePermits, int processingDelayMs) {
+    public InitSimulationRequest(String eventName, int totalTickets, int semaphorePermits, int thinkTimeMs) {
         this.eventName = eventName;
         this.totalTickets = totalTickets;
         this.semaphorePermits = semaphorePermits;
-        this.processingDelayMs = processingDelayMs;
+        this.thinkTimeMs = thinkTimeMs;
     }
 
     public String getEventName() {
@@ -47,11 +50,19 @@ public class InitSimulationRequest {
         this.semaphorePermits = semaphorePermits;
     }
 
-    public int getProcessingDelayMs() {
-        return processingDelayMs;
+    public int getThinkTimeMs() {
+        return thinkTimeMs;
     }
 
-    public void setProcessingDelayMs(int processingDelayMs) {
-        this.processingDelayMs = processingDelayMs;
+    public void setThinkTimeMs(int thinkTimeMs) {
+        this.thinkTimeMs = thinkTimeMs;
+    }
+
+    public int getPaymentSuccessPercent() {
+        return paymentSuccessPercent;
+    }
+
+    public void setPaymentSuccessPercent(int paymentSuccessPercent) {
+        this.paymentSuccessPercent = paymentSuccessPercent;
     }
 }
